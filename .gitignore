@@ -1,0 +1,27 @@
+﻿# Build outputs
+build/
+Debug/
+Release/
+cmake-build-*/
+
+# Compiled files
+*.o
+*.obj
+*.elf
+*.hex
+*.bin
+*.map
+*.d
+*.su
+
+# VS Code local settings
+.vscode/
+
+# Operating system files
+Thumbs.db
+.DS_Store
+
+# Temporary and backup files
+*.tmp
+*.bak
+*~
