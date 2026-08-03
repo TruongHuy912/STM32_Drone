@@ -24,6 +24,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 
 /* USER CODE END Includes */
 
@@ -45,6 +46,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+static uint32_t led_timestamp;
+static uint32_t uart_timestamp;
 
 /* USER CODE END PV */
 
@@ -91,6 +94,13 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  if (HAL_TIM_Base_Start(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  led_timestamp = micros();
+  uart_timestamp = led_timestamp;
 
   /* USER CODE END 2 */
 
@@ -101,6 +111,28 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint32_t now = micros();
+
+    if ((uint32_t)(now - led_timestamp) >= 500000U)
+    {
+      led_timestamp += 500000U;
+      HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_3);
+    }
+
+    if ((uint32_t)(now - uart_timestamp) >= 1000000U)
+    {
+      char message[48];
+      int length;
+
+      uart_timestamp += 1000000U;
+      length = snprintf(message, sizeof(message),
+                        "H1 boot OK, micros=%lu\r\n", (unsigned long)now);
+      if ((length > 0) && ((size_t)length < sizeof(message)))
+      {
+        (void)HAL_UART_Transmit(&huart1, (uint8_t *)message,
+                                (uint16_t)length, HAL_MAX_DELAY);
+      }
+    }
   }
   /* USER CODE END 3 */
 }
@@ -164,6 +196,10 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+uint32_t micros(void)
+{
+  return __HAL_TIM_GET_COUNTER(&htim2);
+}
 
 /* USER CODE END 4 */
 

@@ -53,6 +53,7 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+uint32_t micros(void);
 
 /* USER CODE END EFP */
 
