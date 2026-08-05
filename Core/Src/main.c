@@ -26,7 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bmi270_port.h"
+#include "bmi270_app.h"
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -38,7 +38,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BMI270_PORT_TIMEOUT_MS      50U
 #define BMP388_CHIP_ID_REG          0x00U
 #define BMP388_CHIP_ID_EXPECTED     0x50U
 #define BMP388_I2C_ADDRESS_0        0x76U
@@ -143,55 +142,7 @@ int main(void)
     Error_Handler();
   }
 
-  {
-    struct bmi2_dev bmi270_device = {0};
-    struct bmi270_port_context bmi270_context = {
-      .spi = &hspi2,
-      .cs_port = BMI270_CS_GPIO_Port,
-      .cs_pin = BMI270_CS_Pin,
-      .timeout_ms = BMI270_PORT_TIMEOUT_MS
-    };
-    uint8_t internal_status = 0xFFU;
-    int8_t result;
-    char message[96];
-    int length;
-
-    HAL_GPIO_WritePin(BMI270_CS_GPIO_Port, BMI270_CS_Pin, GPIO_PIN_SET);
-    HAL_Delay(10U);
-    result = BMI270_Port_Configure(&bmi270_device, &bmi270_context);
-    if (result == BMI2_OK)
-    {
-      result = bmi270_init(&bmi270_device);
-    }
-    if (result == BMI2_OK)
-    {
-      result = bmi2_get_internal_status(&internal_status, &bmi270_device);
-    }
-
-    if ((result == BMI2_OK) && (bmi270_device.chip_id == BMI270_CHIP_ID) &&
-        (internal_status == BMI2_INIT_OK))
-    {
-      length = snprintf(message, sizeof(message),
-                        "BMI270 API INIT: PASS, result=%d, chip_id=0x%02X, "
-                        "internal_status=0x%02X\r\n",
-                        (int)result, (unsigned int)bmi270_device.chip_id,
-                        (unsigned int)internal_status);
-    }
-    else
-    {
-      length = snprintf(message, sizeof(message),
-                        "BMI270 API INIT: FAIL, result=%d, chip_id=0x%02X, "
-                        "internal_status=0x%02X\r\n",
-                        (int)result, (unsigned int)bmi270_device.chip_id,
-                        (unsigned int)internal_status);
-    }
-
-    if ((length > 0) && ((size_t)length < sizeof(message)))
-    {
-      (void)HAL_UART_Transmit(&huart1, (uint8_t *)message,
-                              (uint16_t)length, BOOT_UART_TIMEOUT_MS);
-    }
-  }
+  (void)BMI270_App_Init();
 
   {
     uint8_t selected_address = 0x00U;
@@ -280,6 +231,8 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     uint32_t now = micros();
+
+    BMI270_App_Process();
 
     if ((uint32_t)(now - led_timestamp) >= 500000U)
     {
