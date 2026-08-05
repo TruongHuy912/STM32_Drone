@@ -27,6 +27,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "bmi270_app.h"
+#include "bmp388_app.h"
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -38,13 +39,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BMP388_CHIP_ID_REG          0x00U
-#define BMP388_CHIP_ID_EXPECTED     0x50U
-#define BMP388_I2C_ADDRESS_0        0x76U
-#define BMP388_I2C_ADDRESS_1        0x77U
-#define BMP388_I2C_READY_TRIALS     1U
-#define BMP388_I2C_TIMEOUT_MS       50U
-#define BOOT_UART_TIMEOUT_MS        100U
 
 /* USER CODE END PD */
 
@@ -65,38 +59,11 @@ static uint32_t uart_timestamp;
 void SystemClock_Config(void);
 void PeriphCommonClock_Config(void);
 /* USER CODE BEGIN PFP */
-static HAL_StatusTypeDef BMP388_I2C_ReadRegister(uint16_t device_address,
-                                                 uint8_t register_address,
-                                                 uint8_t *value);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static HAL_StatusTypeDef BMP388_I2C_ReadRegister(uint16_t device_address,
-                                                 uint8_t register_address,
-                                                 uint8_t *value)
-{
-  uint8_t register_value = 0x00U;
-  HAL_StatusTypeDef status;
-
-  if (value == NULL)
-  {
-    return HAL_ERROR;
-  }
-
-  status = HAL_I2C_Mem_Read(&hi2c2, (uint16_t)(device_address << 1U),
-                            register_address,
-                            I2C_MEMADD_SIZE_8BIT, &register_value, 1U,
-                            BMP388_I2C_TIMEOUT_MS);
-
-  if (status == HAL_OK)
-  {
-    *value = register_value;
-  }
-
-  return status;
-}
 
 /* USER CODE END 0 */
 
@@ -143,80 +110,7 @@ int main(void)
   }
 
   (void)BMI270_App_Init();
-
-  {
-    uint8_t selected_address = 0x00U;
-    uint8_t chip_id = 0x00U;
-    HAL_StatusTypeDef ready_status_76;
-    HAL_StatusTypeDef ready_status_77 = HAL_ERROR;
-    HAL_StatusTypeDef ready_status = HAL_ERROR;
-    HAL_StatusTypeDef read_status = HAL_ERROR;
-    char message[128];
-    int length;
-
-    HAL_Delay(10U);
-    ready_status_76 = HAL_I2C_IsDeviceReady(
-        &hi2c2, (uint16_t)(BMP388_I2C_ADDRESS_0 << 1U),
-        BMP388_I2C_READY_TRIALS, BMP388_I2C_TIMEOUT_MS);
-
-    if (ready_status_76 == HAL_OK)
-    {
-      selected_address = BMP388_I2C_ADDRESS_0;
-      ready_status = ready_status_76;
-    }
-    else
-    {
-      ready_status_77 = HAL_I2C_IsDeviceReady(
-          &hi2c2, (uint16_t)(BMP388_I2C_ADDRESS_1 << 1U),
-          BMP388_I2C_READY_TRIALS, BMP388_I2C_TIMEOUT_MS);
-      if (ready_status_77 == HAL_OK)
-      {
-        selected_address = BMP388_I2C_ADDRESS_1;
-        ready_status = ready_status_77;
-      }
-    }
-
-    if (selected_address == 0x00U)
-    {
-      length = snprintf(message, sizeof(message),
-                        "BMP388 I2C: FAIL, no_ack_0x76=%u, "
-                        "no_ack_0x77=%u\r\n",
-                        (unsigned int)ready_status_76,
-                        (unsigned int)ready_status_77);
-    }
-    else
-    {
-      read_status = BMP388_I2C_ReadRegister(
-          selected_address, BMP388_CHIP_ID_REG, &chip_id);
-
-      if ((read_status == HAL_OK) &&
-          (chip_id == BMP388_CHIP_ID_EXPECTED))
-      {
-        length = snprintf(message, sizeof(message),
-                          "BMP388 I2C: PASS, address=0x%02X, "
-                          "chip_id=0x%02X\r\n",
-                          (unsigned int)selected_address,
-                          (unsigned int)chip_id);
-      }
-      else
-      {
-        length = snprintf(message, sizeof(message),
-                          "BMP388 I2C: FAIL, address=0x%02X, "
-                          "chip_id=0x%02X, ready_status=%u, "
-                          "read_status=%u\r\n",
-                          (unsigned int)selected_address,
-                          (unsigned int)chip_id,
-                          (unsigned int)ready_status,
-                          (unsigned int)read_status);
-      }
-    }
-
-    if ((length > 0) && ((size_t)length < sizeof(message)))
-    {
-      (void)HAL_UART_Transmit(&huart1, (uint8_t *)message,
-                              (uint16_t)length, BOOT_UART_TIMEOUT_MS);
-    }
-  }
+  (void)BMP388_App_Init();
 
   led_timestamp = micros();
   uart_timestamp = led_timestamp;
@@ -233,6 +127,7 @@ int main(void)
     uint32_t now = micros();
 
     BMI270_App_Process();
+    BMP388_App_Process();
 
     if ((uint32_t)(now - led_timestamp) >= 500000U)
     {
