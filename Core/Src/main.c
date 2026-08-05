@@ -26,6 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bmi270_port.h"
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -37,10 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BMI270_CHIP_ID_REG          0x00U
-#define BMI270_CHIP_ID_EXPECTED     0x24U
-#define BMI270_SPI_READ_MASK        0x80U
-#define BMI270_SPI_TIMEOUT_MS       50U
+#define BMI270_PORT_TIMEOUT_MS      50U
 #define BMP388_CHIP_ID_REG          0x00U
 #define BMP388_CHIP_ID_EXPECTED     0x50U
 #define BMP388_I2C_ADDRESS_0        0x76U
@@ -68,8 +66,6 @@ static uint32_t uart_timestamp;
 void SystemClock_Config(void);
 void PeriphCommonClock_Config(void);
 /* USER CODE BEGIN PFP */
-static HAL_StatusTypeDef BMI270_SPI_ReadRegister(uint8_t register_address,
-                                                 uint8_t *value);
 static HAL_StatusTypeDef BMP388_I2C_ReadRegister(uint16_t device_address,
                                                  uint8_t register_address,
                                                  uint8_t *value);
@@ -78,33 +74,6 @@ static HAL_StatusTypeDef BMP388_I2C_ReadRegister(uint16_t device_address,
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static HAL_StatusTypeDef BMI270_SPI_ReadRegister(uint8_t register_address,
-                                                 uint8_t *value)
-{
-  uint8_t tx[3] = {(uint8_t)(register_address | BMI270_SPI_READ_MASK),
-                   0x00U, 0x00U};
-  uint8_t rx[3] = {0x00U, 0x00U, 0x00U};
-  HAL_StatusTypeDef status;
-
-  if (value == NULL)
-  {
-    HAL_GPIO_WritePin(BMI270_CS_GPIO_Port, BMI270_CS_Pin, GPIO_PIN_SET);
-    return HAL_ERROR;
-  }
-
-  HAL_GPIO_WritePin(BMI270_CS_GPIO_Port, BMI270_CS_Pin, GPIO_PIN_RESET);
-  status = HAL_SPI_TransmitReceive(&hspi2, tx, rx, 3U,
-                                   BMI270_SPI_TIMEOUT_MS);
-  HAL_GPIO_WritePin(BMI270_CS_GPIO_Port, BMI270_CS_Pin, GPIO_PIN_SET);
-
-  if (status == HAL_OK)
-  {
-    *value = rx[2];
-  }
-
-  return status;
-}
-
 static HAL_StatusTypeDef BMP388_I2C_ReadRegister(uint16_t device_address,
                                                  uint8_t register_address,
                                                  uint8_t *value)
@@ -175,35 +144,46 @@ int main(void)
   }
 
   {
-    uint8_t first_chip_id = 0x00U;
-    uint8_t chip_id = 0x00U;
-    HAL_StatusTypeDef first_status;
-    HAL_StatusTypeDef read_status;
+    struct bmi2_dev bmi270_device = {0};
+    struct bmi270_port_context bmi270_context = {
+      .spi = &hspi2,
+      .cs_port = BMI270_CS_GPIO_Port,
+      .cs_pin = BMI270_CS_Pin,
+      .timeout_ms = BMI270_PORT_TIMEOUT_MS
+    };
+    uint8_t internal_status = 0xFFU;
+    int8_t result;
     char message[96];
     int length;
 
     HAL_GPIO_WritePin(BMI270_CS_GPIO_Port, BMI270_CS_Pin, GPIO_PIN_SET);
     HAL_Delay(10U);
-    first_status = BMI270_SPI_ReadRegister(BMI270_CHIP_ID_REG,
-                                           &first_chip_id);
-    HAL_Delay(1U);
-    read_status = BMI270_SPI_ReadRegister(BMI270_CHIP_ID_REG, &chip_id);
+    result = BMI270_Port_Configure(&bmi270_device, &bmi270_context);
+    if (result == BMI2_OK)
+    {
+      result = bmi270_init(&bmi270_device);
+    }
+    if (result == BMI2_OK)
+    {
+      result = bmi2_get_internal_status(&internal_status, &bmi270_device);
+    }
 
-    if ((first_status == HAL_OK) && (read_status == HAL_OK) &&
-        (chip_id == BMI270_CHIP_ID_EXPECTED))
+    if ((result == BMI2_OK) && (bmi270_device.chip_id == BMI270_CHIP_ID) &&
+        (internal_status == BMI2_INIT_OK))
     {
       length = snprintf(message, sizeof(message),
-                        "BMI270 SPI: PASS, chip_id=0x%02X\r\n",
-                        (unsigned int)chip_id);
+                        "BMI270 API INIT: PASS, result=%d, chip_id=0x%02X, "
+                        "internal_status=0x%02X\r\n",
+                        (int)result, (unsigned int)bmi270_device.chip_id,
+                        (unsigned int)internal_status);
     }
     else
     {
       length = snprintf(message, sizeof(message),
-                        "BMI270 SPI: FAIL, chip_id=0x%02X, "
-                        "first_status=%u, read_status=%u\r\n",
-                        (unsigned int)chip_id,
-                        (unsigned int)first_status,
-                        (unsigned int)read_status);
+                        "BMI270 API INIT: FAIL, result=%d, chip_id=0x%02X, "
+                        "internal_status=0x%02X\r\n",
+                        (int)result, (unsigned int)bmi270_device.chip_id,
+                        (unsigned int)internal_status);
     }
 
     if ((length > 0) && ((size_t)length < sizeof(message)))

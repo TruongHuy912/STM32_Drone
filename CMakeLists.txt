@@ -44,6 +44,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/bmi270_port.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMI270/bmi2.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMI270/bmi270.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMP3/bmp3.c
