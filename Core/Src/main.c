@@ -28,6 +28,7 @@
 /* USER CODE BEGIN Includes */
 #include "bmi270_app.h"
 #include "bmp388_app.h"
+#include "hmc5883l_app.h"
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -111,6 +112,7 @@ int main(void)
 
   (void)BMI270_App_Init();
   (void)BMP388_App_Init();
+  (void)HMC5883L_App_Init();
 
   led_timestamp = micros();
   uart_timestamp = led_timestamp;
@@ -128,6 +130,7 @@ int main(void)
 
     BMI270_App_Process();
     BMP388_App_Process();
+    HMC5883L_App_Process();
 
     if ((uint32_t)(now - led_timestamp) >= 500000U)
     {
