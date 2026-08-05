@@ -58,6 +58,10 @@ uint32_t micros(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define STATUS_LED_Pin GPIO_PIN_3
+#define STATUS_LED_GPIO_Port GPIOE
+#define BMI270_CS_Pin GPIO_PIN_12
+#define BMI270_CS_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
