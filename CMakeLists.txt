@@ -44,12 +44,15 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMI270/bmi2.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMI270/bmi270.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMP3/bmp3.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMI270
+    ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMP3
 )
 
 # Add project symbols (macros)
