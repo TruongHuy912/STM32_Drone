@@ -25,3 +25,7 @@ Thumbs.db
 *.tmp
 *.bak
 *~
+
+# Local iBUS monitor output and Python cache
+logs/
+__pycache__/

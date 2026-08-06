@@ -28,6 +28,7 @@
 /* USER CODE BEGIN Includes */
 #include "bmi270_app.h"
 #include "bmp388_app.h"
+#include "ibus_app.h"
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -103,6 +104,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_I2C2_Init();
   MX_SPI2_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   if (HAL_TIM_Base_Start(&htim2) != HAL_OK)
   {
@@ -111,6 +113,7 @@ int main(void)
 
   (void)BMI270_App_Init();
   (void)BMP388_App_Init();
+  (void)IBus_App_Init();
 
   led_timestamp = micros();
   uart_timestamp = led_timestamp;
@@ -128,6 +131,7 @@ int main(void)
 
     BMI270_App_Process();
     BMP388_App_Process();
+    IBus_App_Process();
 
     if ((uint32_t)(now - led_timestamp) >= 500000U)
     {

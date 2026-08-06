@@ -60,6 +60,8 @@ uint32_t micros(void);
 /* Private defines -----------------------------------------------------------*/
 #define STATUS_LED_Pin GPIO_PIN_3
 #define STATUS_LED_GPIO_Port GPIOE
+#define IBUS_RX_Pin GPIO_PIN_3
+#define IBUS_RX_GPIO_Port GPIOA
 #define BMI270_CS_Pin GPIO_PIN_12
 #define BMI270_CS_GPIO_Port GPIOB
 
