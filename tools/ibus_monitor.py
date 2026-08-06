@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tkinter monitor for machine-readable FlySky iBUS lines from USART1."""
+"""Read-only Tkinter monitor for iBUS and ESC PWM telemetry from USART1."""
 
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ except ImportError:
 
 IBUS_PREFIX = "@IBUS,"
 IBUS_FIELD_COUNT = 16
+ESC_PREFIX = "@ESC,"
+ESC_FIELD_COUNT = 11
 DISPLAY_MIN = 800
 DISPLAY_MAX = 2200
 NORMAL_MIN = 1000
@@ -34,6 +36,11 @@ CENTER_VALUE = 1500
 QUEUE_POLL_MS = 30
 GUI_AGE_UPDATE_MS = 100
 SERIAL_READ_LIMIT = 512
+ESC_DISPLAY_MIN = 900
+ESC_DISPLAY_MAX = 2100
+ESC_SAFE_PULSE_US = 1000
+ESC_SAFE_STATE = 1
+ESC_ALL_STARTED_MASK = 0x0F
 
 CHANNEL_NAMES = (
     "CH1 Roll",
@@ -46,7 +53,14 @@ CHANNEL_NAMES = (
     "CH8 AUX4",
 )
 
-CSV_HEADER = (
+ESC_MOTOR_NAMES = (
+    "MOTOR1 PD12",
+    "MOTOR2 PD13",
+    "MOTOR3 PD14",
+    "MOTOR4 PD15",
+)
+
+IBUS_CSV_HEADER = (
     "timestamp_pc",
     "timestamp_us",
     "stream_alive",
@@ -65,6 +79,20 @@ CSV_HEADER = (
     "ring_overflows",
 )
 
+ESC_CSV_HEADER = (
+    "timestamp_pc",
+    "timestamp_us",
+    "state",
+    "started_mask",
+    "frequency_hz",
+    "motor1_us",
+    "motor2_us",
+    "motor3_us",
+    "motor4_us",
+    "rejected",
+    "start_errors",
+)
+
 
 @dataclass(frozen=True)
 class IBusRecord:
@@ -76,6 +104,17 @@ class IBusRecord:
     checksum_errors: int
     uart_errors: int
     ring_overflows: int
+
+
+@dataclass(frozen=True)
+class ESCRecord:
+    timestamp_us: int
+    state: int
+    started_mask: int
+    frequency_hz: int
+    motor_us: tuple[int, int, int, int]
+    rejected: int
+    start_errors: int
 
 
 def parse_ibus_line(line: str) -> Optional[IBusRecord]:
@@ -118,6 +157,50 @@ def parse_ibus_line(line: str) -> Optional[IBusRecord]:
         checksum_errors=checksum_errors,
         uart_errors=uart_errors,
         ring_overflows=ring_overflows,
+    )
+
+
+def parse_esc_line(line: str) -> Optional[ESCRecord]:
+    """Return None for unrelated logs and raise ValueError for malformed @ESC."""
+    line = line.rstrip("\r\n")
+    if not line.startswith(ESC_PREFIX):
+        return None
+
+    fields = line.split(",")
+    if len(fields) != ESC_FIELD_COUNT or fields[0] != "@ESC":
+        raise ValueError("wrong field count")
+
+    numeric_fields = fields[1:]
+    if any(
+        not field or not field.isascii() or not field.isdecimal()
+        for field in numeric_fields
+    ):
+        raise ValueError("non-decimal or whitespace-containing field")
+
+    values = [int(field, 10) for field in numeric_fields]
+    timestamp_us, state, started_mask, frequency_hz = values[0:4]
+    motor_us = tuple(values[4:8])
+    rejected, start_errors = values[8:10]
+
+    if timestamp_us > 0xFFFFFFFF:
+        raise ValueError("timestamp outside uint32 range")
+    if state > 0xFF or started_mask > 0xFF:
+        raise ValueError("state or started_mask outside uint8 range")
+    if frequency_hz == 0 or frequency_hz > 0xFFFFFFFF:
+        raise ValueError("frequency outside uint32 range")
+    if any(value > 0xFFFF for value in motor_us):
+        raise ValueError("motor pulse outside uint16 range")
+    if rejected > 0xFFFFFFFF or start_errors > 0xFFFFFFFF:
+        raise ValueError("counter outside uint32 range")
+
+    return ESCRecord(
+        timestamp_us=timestamp_us,
+        state=state,
+        started_mask=started_mask,
+        frequency_hz=frequency_hz,
+        motor_us=motor_us,  # type: ignore[arg-type]
+        rejected=rejected,
+        start_errors=start_errors,
     )
 
 
@@ -178,17 +261,22 @@ class SerialReader(threading.Thread):
                     continue
 
                 line = raw_line.decode("ascii", errors="replace").rstrip("\r\n")
-                if not line.startswith(IBUS_PREFIX):
-                    continue
-
-                try:
-                    record = parse_ibus_line(line)
-                except ValueError:
-                    self.emit("malformed", line)
-                    continue
-
-                if record is not None:
-                    self.emit("record", record)
+                if line.startswith(IBUS_PREFIX):
+                    try:
+                        record = parse_ibus_line(line)
+                    except ValueError:
+                        self.emit("malformed_ibus", line)
+                        continue
+                    if record is not None:
+                        self.emit("ibus_record", record)
+                elif line.startswith(ESC_PREFIX):
+                    try:
+                        esc_record = parse_esc_line(line)
+                    except ValueError:
+                        self.emit("malformed_esc", line)
+                        continue
+                    if esc_record is not None:
+                        self.emit("esc_record", esc_record)
         except Exception as exc:
             if not self.stop_event.is_set():
                 had_error = True
@@ -278,6 +366,90 @@ class ChannelBar:
         self.value_label.configure(text=str(self.value), foreground=value_color)
 
 
+class ESCMotorBar:
+    def __init__(self, parent: ttk.Frame, row: int, name: str) -> None:
+        self.value = 0
+        self.has_data = False
+
+        ttk.Label(parent, text=name, width=16).grid(
+            row=row, column=0, padx=(4, 8), pady=3, sticky="w"
+        )
+        self.canvas = tk.Canvas(
+            parent,
+            height=24,
+            width=560,
+            highlightthickness=1,
+            highlightbackground="#9aa0a6",
+        )
+        self.canvas.grid(row=row, column=1, padx=4, pady=3, sticky="ew")
+        self.canvas.bind("<Configure>", lambda _event: self.redraw())
+        self.value_label = tk.Label(
+            parent, text="-- us", width=10, anchor="e", font=("Segoe UI", 10, "bold")
+        )
+        self.value_label.grid(row=row, column=2, padx=(8, 4), pady=3)
+
+    def set(self, value: int) -> None:
+        self.value = value
+        self.has_data = True
+        self.redraw()
+
+    def redraw(self) -> None:
+        width = max(self.canvas.winfo_width(), 20)
+        height = max(self.canvas.winfo_height(), 20)
+        margin = 3
+        usable = max(width - (2 * margin), 1)
+
+        def x_for(value: int) -> float:
+            return margin + (
+                (value - ESC_DISPLAY_MIN)
+                * usable
+                / (ESC_DISPLAY_MAX - ESC_DISPLAY_MIN)
+            )
+
+        self.canvas.delete("all")
+        if not self.has_data:
+            background = "#e0e0e0"
+            fill = "#9e9e9e"
+            marker = "#777777"
+            value_color = "#777777"
+            display_value = ESC_DISPLAY_MIN
+            label = "-- us"
+        else:
+            warning = self.value != ESC_SAFE_PULSE_US
+            background = "#edf1f4"
+            fill = "#b3261e" if warning else "#188038"
+            marker = "#202124"
+            value_color = "#b3261e" if warning else "#188038"
+            display_value = min(max(self.value, ESC_DISPLAY_MIN), ESC_DISPLAY_MAX)
+            label = f"{self.value} us"
+
+        self.canvas.create_rectangle(
+            margin,
+            margin,
+            width - margin,
+            height - margin,
+            fill=background,
+            outline="",
+        )
+        self.canvas.create_rectangle(
+            x_for(ESC_DISPLAY_MIN),
+            margin,
+            x_for(display_value),
+            height - margin,
+            fill=fill,
+            outline="",
+        )
+        self.canvas.create_line(
+            x_for(ESC_SAFE_PULSE_US),
+            margin,
+            x_for(ESC_SAFE_PULSE_US),
+            height - margin,
+            fill=marker,
+            width=2,
+        )
+        self.value_label.configure(text=label, foreground=value_color)
+
+
 class IBusMonitorApp:
     def __init__(
         self,
@@ -287,8 +459,8 @@ class IBusMonitorApp:
         demo: bool,
     ) -> None:
         self.root = root
-        self.root.title("FlySky iBUS Monitor — STM32H743")
-        self.root.minsize(820, 650)
+        self.root.title("iBUS and ESC PWM Monitor — STM32H743")
+        self.root.minsize(900, 940)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         self.events: queue.Queue = queue.Queue()
@@ -300,11 +472,16 @@ class IBusMonitorApp:
         self.demo_last_valid = self.demo_start
         self.demo_valid_frames = 0
         self.demo_channels = [1500] * 8
+        self.demo_last_esc_emit = -1.0
 
-        self.malformed_line_count = 0
+        self.malformed_ibus_count = 0
+        self.malformed_esc_count = 0
         self.last_gui_data_monotonic: Optional[float] = None
+        self.last_esc_data_monotonic: Optional[float] = None
         self.csv_file: Optional[TextIO] = None
         self.csv_writer: Optional[csv.writer] = None
+        self.esc_csv_file: Optional[TextIO] = None
+        self.esc_csv_writer: Optional[csv.writer] = None
 
         self.port_var = tk.StringVar(value=initial_port or "")
         self.baud_var = tk.StringVar(value=str(baud))
@@ -318,6 +495,14 @@ class IBusMonitorApp:
         self.overflow_var = tk.StringVar(value="0")
         self.malformed_var = tk.StringVar(value="0")
         self.gui_age_var = tk.StringVar(value="No GUI data received")
+        self.esc_state_var = tk.StringVar(value="NO DATA")
+        self.esc_mask_var = tk.StringVar(value="started mask: --")
+        self.esc_frequency_var = tk.StringVar(value="frequency: -- Hz")
+        self.esc_timestamp_var = tk.StringVar(value="timestamp_us: --")
+        self.esc_age_var = tk.StringVar(value="Last @ESC packet: --")
+        self.esc_rejected_var = tk.StringVar(value="0")
+        self.esc_start_errors_var = tk.StringVar(value="0")
+        self.esc_malformed_var = tk.StringVar(value="0")
         self.csv_status_var = tk.StringVar(value="CSV logging stopped")
 
         self._build_interface()
@@ -392,8 +577,59 @@ class IBusMonitorApp:
             for index, name in enumerate(CHANNEL_NAMES)
         ]
 
+        esc_frame = ttk.LabelFrame(self.root, text="ESC PWM Output")
+        esc_frame.grid(row=3, column=0, padx=10, pady=5, sticky="nsew")
+        esc_frame.columnconfigure(1, weight=1)
+        self.esc_state_label = tk.Label(
+            esc_frame,
+            textvariable=self.esc_state_var,
+            background="#5f6368",
+            foreground="white",
+            font=("Segoe UI", 13, "bold"),
+            padx=12,
+            pady=4,
+        )
+        self.esc_state_label.grid(row=0, column=0, padx=6, pady=6, sticky="w")
+        self.esc_mask_label = tk.Label(
+            esc_frame, textvariable=self.esc_mask_var, foreground="#5f6368"
+        )
+        self.esc_mask_label.grid(row=0, column=1, padx=8, pady=6, sticky="w")
+        ttk.Label(esc_frame, textvariable=self.esc_frequency_var).grid(
+            row=0, column=2, padx=8, pady=6, sticky="e"
+        )
+        ttk.Label(esc_frame, textvariable=self.esc_timestamp_var).grid(
+            row=1, column=0, padx=6, pady=(0, 4), sticky="w"
+        )
+        ttk.Label(esc_frame, textvariable=self.esc_age_var).grid(
+            row=1, column=1, columnspan=2, padx=8, pady=(0, 4), sticky="w"
+        )
+        ttk.Label(
+            esc_frame,
+            text="Display 900–2100 us  |  H3B-1 safe value: exactly 1000 us",
+        ).grid(row=2, column=0, columnspan=3, padx=6, pady=(2, 2), sticky="w")
+        self.esc_motor_bars = [
+            ESCMotorBar(esc_frame, index + 3, name)
+            for index, name in enumerate(ESC_MOTOR_NAMES)
+        ]
+        esc_diagnostics = ttk.Frame(esc_frame)
+        esc_diagnostics.grid(
+            row=7, column=0, columnspan=3, padx=4, pady=(3, 6), sticky="ew"
+        )
+        esc_diagnostic_items = (
+            ("Rejected commands", self.esc_rejected_var),
+            ("Start errors", self.esc_start_errors_var),
+            ("Malformed @ESC lines", self.esc_malformed_var),
+        )
+        for index, (label, variable) in enumerate(esc_diagnostic_items):
+            ttk.Label(esc_diagnostics, text=f"{label}:").grid(
+                row=0, column=index * 2, padx=(4, 2), pady=2, sticky="e"
+            )
+            ttk.Label(esc_diagnostics, textvariable=variable).grid(
+                row=0, column=(index * 2) + 1, padx=(2, 12), pady=2, sticky="w"
+            )
+
         diagnostics = ttk.LabelFrame(self.root, text="Diagnostics")
-        diagnostics.grid(row=3, column=0, padx=10, pady=5, sticky="ew")
+        diagnostics.grid(row=4, column=0, padx=10, pady=5, sticky="ew")
         diagnostic_items = (
             ("Valid frames", self.valid_var),
             ("Checksum errors", self.checksum_var),
@@ -413,7 +649,7 @@ class IBusMonitorApp:
         )
 
         logging_frame = ttk.LabelFrame(self.root, text="Optional CSV logging")
-        logging_frame.grid(row=4, column=0, padx=10, pady=(5, 10), sticky="ew")
+        logging_frame.grid(row=5, column=0, padx=10, pady=(5, 10), sticky="ew")
         self.start_log_button = ttk.Button(
             logging_frame, text="Start CSV Log", command=self.start_csv_log
         )
@@ -494,11 +730,16 @@ class IBusMonitorApp:
                     self.serial_status_var.set(f"Connected: {payload}")
                     self.connect_button.configure(state="disabled")
                     self.disconnect_button.configure(state="normal")
-                elif kind == "record" and isinstance(payload, IBusRecord):
+                elif kind == "ibus_record" and isinstance(payload, IBusRecord):
                     self._handle_record(payload)
-                elif kind == "malformed":
-                    self.malformed_line_count += 1
-                    self.malformed_var.set(str(self.malformed_line_count))
+                elif kind == "esc_record" and isinstance(payload, ESCRecord):
+                    self._handle_esc_record(payload)
+                elif kind == "malformed_ibus":
+                    self.malformed_ibus_count += 1
+                    self.malformed_var.set(str(self.malformed_ibus_count))
+                elif kind == "malformed_esc":
+                    self.malformed_esc_count += 1
+                    self.esc_malformed_var.set(str(self.malformed_esc_count))
                 elif kind == "error":
                     self.serial_status_var.set(f"Serial error: {payload}")
                 elif kind == "disconnected":
@@ -528,33 +769,81 @@ class IBusMonitorApp:
         self.overflow_var.set(str(record.ring_overflows))
         self._write_csv_record(record)
 
+    def _handle_esc_record(self, record: ESCRecord) -> None:
+        state_safe = record.state == ESC_SAFE_STATE
+        mask_safe = record.started_mask == ESC_ALL_STARTED_MASK
+
+        self.last_esc_data_monotonic = time.monotonic()
+        self.esc_state_var.set("SAFE" if state_safe else f"ERROR ({record.state})")
+        self.esc_state_label.configure(
+            background="#188038" if state_safe else "#b3261e"
+        )
+        self.esc_mask_var.set(f"started mask: 0x{record.started_mask:02X}")
+        self.esc_mask_label.configure(
+            foreground="#188038" if mask_safe else "#b3261e"
+        )
+        self.esc_frequency_var.set(f"frequency: {record.frequency_hz} Hz")
+        self.esc_timestamp_var.set(f"timestamp_us: {record.timestamp_us}")
+        self.esc_age_var.set("Last @ESC packet: 0.0 s ago")
+
+        for bar, value in zip(self.esc_motor_bars, record.motor_us):
+            bar.set(value)
+
+        self.esc_rejected_var.set(str(record.rejected))
+        self.esc_start_errors_var.set(str(record.start_errors))
+        self._write_esc_csv_record(record)
+
     def _update_gui_age(self) -> None:
         if self.last_gui_data_monotonic is None:
             self.gui_age_var.set("No GUI data received")
         else:
             age = time.monotonic() - self.last_gui_data_monotonic
             self.gui_age_var.set(f"Last GUI data: {age:.1f} s ago")
+        if self.last_esc_data_monotonic is None:
+            self.esc_age_var.set("Last @ESC packet: --")
+        else:
+            esc_age = time.monotonic() - self.last_esc_data_monotonic
+            self.esc_age_var.set(f"Last @ESC packet: {esc_age:.1f} s ago")
         self.root.after(GUI_AGE_UPDATE_MS, self._update_gui_age)
 
     def start_csv_log(self) -> None:
-        if self.csv_file is not None:
+        if self.csv_file is not None or self.esc_csv_file is not None:
             return
         try:
             project_root = Path(__file__).resolve().parent.parent
             logs_dir = project_root / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
-            filename = datetime.now().strftime("ibus_%Y%m%d_%H%M%S.csv")
-            path = logs_dir / filename
-            self.csv_file = path.open("w", newline="", encoding="utf-8")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            ibus_path = logs_dir / f"ibus_{timestamp}.csv"
+            esc_path = logs_dir / f"esc_{timestamp}.csv"
+            self.csv_file = ibus_path.open("w", newline="", encoding="utf-8")
             self.csv_writer = csv.writer(self.csv_file)
-            self.csv_writer.writerow(CSV_HEADER)
+            self.csv_writer.writerow(IBUS_CSV_HEADER)
+            self.esc_csv_file = esc_path.open("w", newline="", encoding="utf-8")
+            self.esc_csv_writer = csv.writer(self.esc_csv_file)
+            self.esc_csv_writer.writerow(ESC_CSV_HEADER)
             self.csv_file.flush()
-            self.csv_status_var.set(f"Logging: {path}")
+            self.esc_csv_file.flush()
+            self.csv_status_var.set(
+                f"Logging: {ibus_path.name} and {esc_path.name}"
+            )
             self.start_log_button.configure(state="disabled")
             self.stop_log_button.configure(state="normal")
         except OSError as exc:
+            if self.csv_file is not None:
+                try:
+                    self.csv_file.close()
+                except OSError:
+                    pass
+            if self.esc_csv_file is not None:
+                try:
+                    self.esc_csv_file.close()
+                except OSError:
+                    pass
             self.csv_file = None
             self.csv_writer = None
+            self.esc_csv_file = None
+            self.esc_csv_writer = None
             messagebox.showerror("CSV logging", str(exc))
 
     def stop_csv_log(self) -> None:
@@ -563,8 +852,15 @@ class IBusMonitorApp:
                 self.csv_file.close()
             except OSError:
                 pass
+        if self.esc_csv_file is not None:
+            try:
+                self.esc_csv_file.close()
+            except OSError:
+                pass
         self.csv_file = None
         self.csv_writer = None
+        self.esc_csv_file = None
+        self.esc_csv_writer = None
         self.csv_status_var.set("CSV logging stopped")
         self.start_log_button.configure(state="normal")
         self.stop_log_button.configure(state="disabled")
@@ -587,6 +883,27 @@ class IBusMonitorApp:
                 )
             )
             self.csv_file.flush()
+        except OSError as exc:
+            self.stop_csv_log()
+            self.csv_status_var.set(f"CSV error: {exc}")
+
+    def _write_esc_csv_record(self, record: ESCRecord) -> None:
+        if self.esc_csv_writer is None or self.esc_csv_file is None:
+            return
+        try:
+            self.esc_csv_writer.writerow(
+                (
+                    datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                    record.timestamp_us,
+                    record.state,
+                    record.started_mask,
+                    record.frequency_hz,
+                    *record.motor_us,
+                    record.rejected,
+                    record.start_errors,
+                )
+            )
+            self.esc_csv_file.flush()
         except OSError as exc:
             self.stop_csv_log()
             self.csv_status_var.set(f"CSV error: {exc}")
@@ -632,6 +949,36 @@ class IBusMonitorApp:
             ring_overflows=int(elapsed // 30),
         )
         self._handle_record(record)
+
+        if (elapsed - self.demo_last_esc_emit) >= 0.1:
+            esc_phase = elapsed % 12.0
+            esc_state = ESC_SAFE_STATE
+            started_mask = ESC_ALL_STARTED_MASK
+            motor_us = [ESC_SAFE_PULSE_US] * 4
+            rejected = 0
+            start_errors = 0
+
+            if 6.0 <= esc_phase < 8.0:
+                motor_us[1] = 1350
+                rejected = 1
+            elif 8.0 <= esc_phase < 10.0:
+                started_mask = 0x07
+            elif 10.0 <= esc_phase < 12.0:
+                esc_state = 2
+                start_errors = 1
+
+            esc_record = ESCRecord(
+                timestamp_us=int(elapsed * 1_000_000) & 0xFFFFFFFF,
+                state=esc_state,
+                started_mask=started_mask,
+                frequency_hz=50,
+                motor_us=tuple(motor_us),  # type: ignore[arg-type]
+                rejected=rejected,
+                start_errors=start_errors,
+            )
+            self._handle_esc_record(esc_record)
+            self.demo_last_esc_emit = elapsed
+
         self.demo_after_id = self.root.after(50, self._demo_tick)
 
     def close(self) -> None:
@@ -650,7 +997,9 @@ class IBusMonitorApp:
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="FlySky iBUS USART monitor")
+    parser = argparse.ArgumentParser(
+        description="Read-only FlySky iBUS and ESC PWM USART monitor"
+    )
     parser.add_argument("--port", help="COM port, for example COM6")
     parser.add_argument("--baud", type=int, default=115200, help="serial baud rate")
     parser.add_argument(

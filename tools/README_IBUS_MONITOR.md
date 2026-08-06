@@ -1,7 +1,9 @@
-# FlySky iBUS Monitor for Windows
+# FlySky iBUS and ESC PWM Monitor for Windows
 
-The monitor displays only firmware lines beginning with `@IBUS,`. USART1 logs
-from BMI270, BMP388, H1, and other diagnostics are ignored.
+The read-only monitor displays firmware lines beginning with `@IBUS,` or
+`@ESC,`. USART1 logs from BMI270, BMP388, H1, and other diagnostics are
+ignored. The application never sends commands to the firmware and has no motor
+control, arming, or pulse-setting function.
 
 ## Requirements
 
@@ -38,8 +40,8 @@ Test the interface without hardware or a serial port:
 py tools\ibus_monitor.py --demo
 ```
 
-Demo mode animates all channel bars and alternates between `LINK OK` and
-`LINK LOST`.
+Demo mode animates all channel bars, alternates between `LINK OK` and
+`LINK LOST`, and exercises the ESC safety display without opening a COM port.
 
 ## Channel display
 
@@ -65,12 +67,23 @@ values after its RF link is lost.
 
 ## CSV logging
 
-CSV logging is optional. Press **Start CSV Log** to create:
+CSV logging is optional. Press **Start CSV Log** to create two files:
 
 ```text
 logs/ibus_YYYYMMDD_HHMMSS.csv
+logs/esc_YYYYMMDD_HHMMSS.csv
 ```
 
 Press **Stop CSV Log** before inspecting or moving the file. Each row contains
-the PC timestamp, firmware timestamp, stream state, frame age, CH1–CH8, and the
-four diagnostic counters.
+the PC timestamp and the corresponding machine-readable telemetry fields. The
+iBUS file contains stream state, frame age, CH1–CH8, and diagnostic counters.
+The ESC file contains state, started mask, frequency, four pulse widths,
+rejected commands, and start errors.
+
+## ESC PWM display
+
+The `ESC PWM Output` panel shows TIM4 outputs MOTOR1–MOTOR4 on PD12–PD15. A
+normal H3B-1 record has state `SAFE`, started mask `0x0F`, frequency 50 Hz, and
+all four pulse widths exactly 1000 us. A different pulse is shown in red; a
+different mask or non-SAFE state is also shown as a warning. This display is
+diagnostic only and cannot modify the PWM outputs.

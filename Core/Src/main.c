@@ -28,6 +28,7 @@
 /* USER CODE BEGIN Includes */
 #include "bmi270_app.h"
 #include "bmp388_app.h"
+#include "esc_pwm.h"
 #include "ibus_app.h"
 #include <stdio.h>
 
@@ -105,10 +106,16 @@ int main(void)
   MX_I2C2_Init();
   MX_SPI2_Init();
   MX_USART2_UART_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   if (HAL_TIM_Base_Start(&htim2) != HAL_OK)
   {
     Error_Handler();
+  }
+
+  if (ESC_PWM_Init())
+  {
+    (void)ESC_PWM_StartSafe();
   }
 
   (void)BMI270_App_Init();
@@ -131,6 +138,7 @@ int main(void)
 
     BMI270_App_Process();
     BMP388_App_Process();
+    ESC_PWM_Process();
     IBus_App_Process();
 
     if ((uint32_t)(now - led_timestamp) >= 500000U)

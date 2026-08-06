@@ -64,6 +64,14 @@ uint32_t micros(void);
 #define IBUS_RX_GPIO_Port GPIOA
 #define BMI270_CS_Pin GPIO_PIN_12
 #define BMI270_CS_GPIO_Port GPIOB
+#define MOTOR1_PWM_Pin GPIO_PIN_12
+#define MOTOR1_PWM_GPIO_Port GPIOD
+#define MOTOR2_PWM_Pin GPIO_PIN_13
+#define MOTOR2_PWM_GPIO_Port GPIOD
+#define MOTOR3_PWM_Pin GPIO_PIN_14
+#define MOTOR3_PWM_GPIO_Port GPIOD
+#define MOTOR4_PWM_Pin GPIO_PIN_15
+#define MOTOR4_PWM_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 
