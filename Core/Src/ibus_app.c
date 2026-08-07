@@ -1,5 +1,6 @@
 #include "ibus_app.h"
 
+#include "debug_log.h"
 #include "ibus_port.h"
 #include "usart.h"
 
@@ -125,7 +126,8 @@ void IBus_App_Process(void)
     IBus_App_PrintMachine(now_us);
   }
 
-  if ((ibus_state.stream_alive != 0U) &&
+  if ((Debug_Log_IsFull() != 0U) &&
+      (ibus_state.stream_alive != 0U) &&
       ((uint32_t)(now_us - ibus_last_data_print_us) >=
        IBUS_DATA_PERIOD_US))
   {
@@ -133,11 +135,20 @@ void IBus_App_Process(void)
     IBus_App_PrintData(now_us);
   }
 
-  if ((uint32_t)(now_us - ibus_last_diag_print_us) >=
-      IBUS_DIAG_PERIOD_US)
+  if ((Debug_Log_IsFull() != 0U) &&
+      ((uint32_t)(now_us - ibus_last_diag_print_us) >=
+       IBUS_DIAG_PERIOD_US))
   {
     ibus_last_diag_print_us = now_us;
     IBus_App_PrintDiagnostic(now_us);
+  }
+}
+
+void IBus_App_GetState(IBus_State_t *state)
+{
+  if (state != NULL)
+  {
+    *state = ibus_state;
   }
 }
 

@@ -21,5 +21,6 @@ typedef struct
 
 HAL_StatusTypeDef IBus_App_Init(void);
 void IBus_App_Process(void);
+void IBus_App_GetState(IBus_State_t *state);
 
 #endif /* IBUS_APP_H */

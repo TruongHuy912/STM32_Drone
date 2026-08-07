@@ -1,11 +1,11 @@
 #include "esc_pwm.h"
 
+#include "debug_log.h"
 #include "tim.h"
 #include "usart.h"
 
 #include <stdio.h>
 
-#define ESC_PWM_SAFE_PULSE_US       1000U
 #define ESC_PWM_EXPECTED_PRESCALER   199U
 #define ESC_PWM_EXPECTED_PERIOD    19999U
 #define ESC_PWM_FREQUENCY_HZ           50U
@@ -145,6 +145,80 @@ uint8_t ESC_PWM_SetPulseUs(uint8_t motor_index, uint16_t pulse_us)
   return 1U;
 }
 
+uint8_t ESC_PWM_SetSingleBenchPulseUs(uint8_t motor_index,
+                                      uint16_t pulse_us)
+{
+  if ((htim4.Instance != TIM4) ||
+      (esc_pwm_status.state != ESC_PWM_STATE_SAFE) ||
+      (esc_pwm_status.started_mask != ESC_PWM_ALL_STARTED_MASK) ||
+      (motor_index >= ESC_PWM_MOTOR_COUNT) ||
+      (pulse_us < ESC_PWM_BENCH_MIN_PULSE_US) ||
+      (pulse_us > ESC_PWM_BENCH_MAX_PULSE_US))
+  {
+    esc_pwm_status.rejected_command_count++;
+    if (htim4.Instance == TIM4)
+    {
+      ESC_PWM_WriteAllSafe();
+    }
+    return 0U;
+  }
+
+  ESC_PWM_WriteAllSafe();
+  __HAL_TIM_SET_COMPARE(&htim4, esc_pwm_channels[motor_index], pulse_us);
+  esc_pwm_status.pulse_us[motor_index] = pulse_us;
+  return 1U;
+}
+
+uint8_t ESC_PWM_AreAllOutputsSafe(void)
+{
+  uint8_t motor_index;
+
+  if (htim4.Instance != TIM4)
+  {
+    return 0U;
+  }
+
+  for (motor_index = 0U; motor_index < ESC_PWM_MOTOR_COUNT; motor_index++)
+  {
+    if ((__HAL_TIM_GET_COMPARE(&htim4, esc_pwm_channels[motor_index]) !=
+         ESC_PWM_SAFE_PULSE_US) ||
+        (esc_pwm_status.pulse_us[motor_index] != ESC_PWM_SAFE_PULSE_US))
+    {
+      return 0U;
+    }
+  }
+
+  return 1U;
+}
+
+uint8_t ESC_PWM_OutputsMatchSingleBench(uint8_t motor_index,
+                                        uint16_t pulse_us)
+{
+  uint8_t index;
+
+  if ((htim4.Instance != TIM4) ||
+      (motor_index >= ESC_PWM_MOTOR_COUNT) ||
+      (pulse_us < ESC_PWM_BENCH_MIN_PULSE_US) ||
+      (pulse_us > ESC_PWM_BENCH_MAX_PULSE_US))
+  {
+    return 0U;
+  }
+
+  for (index = 0U; index < ESC_PWM_MOTOR_COUNT; index++)
+  {
+    uint16_t expected = (index == motor_index) ?
+        pulse_us : ESC_PWM_SAFE_PULSE_US;
+
+    if ((__HAL_TIM_GET_COMPARE(&htim4, esc_pwm_channels[index]) != expected) ||
+        (esc_pwm_status.pulse_us[index] != expected))
+    {
+      return 0U;
+    }
+  }
+
+  return 1U;
+}
+
 void ESC_PWM_StopAll(void)
 {
   uint8_t motor_index;
@@ -184,7 +258,8 @@ void ESC_PWM_Process(void)
     ESC_PWM_PrintMachine(now_us);
   }
 
-  if ((uint32_t)(now_us - esc_pwm_last_diag_us) >= ESC_PWM_DIAG_PERIOD_US)
+  if ((Debug_Log_IsFull() != 0U) &&
+      ((uint32_t)(now_us - esc_pwm_last_diag_us) >= ESC_PWM_DIAG_PERIOD_US))
   {
     esc_pwm_last_diag_us = now_us;
     ESC_PWM_PrintDiagnostic();

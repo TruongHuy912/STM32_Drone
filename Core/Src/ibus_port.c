@@ -1,5 +1,6 @@
 #include "ibus_port.h"
 
+#include "debug_cli_port.h"
 #include "usart.h"
 
 #define IBUS_PORT_RING_SIZE          256U
@@ -115,6 +116,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   uint16_t head;
   uint16_t next_head;
 
+  if (huart == &huart1)
+  {
+    Debug_CLI_Port_RxCpltCallback(huart);
+    return;
+  }
   if (huart != &huart2)
   {
     return;
@@ -146,6 +152,11 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
   HAL_StatusTypeDef abort_result;
 
+  if (huart == &huart1)
+  {
+    Debug_CLI_Port_ErrorCallback(huart);
+    return;
+  }
   if (huart != &huart2)
   {
     return;

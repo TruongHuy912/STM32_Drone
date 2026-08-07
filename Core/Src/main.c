@@ -28,8 +28,11 @@
 /* USER CODE BEGIN Includes */
 #include "bmi270_app.h"
 #include "bmp388_app.h"
+#include "debug_cli_port.h"
+#include "debug_log.h"
 #include "esc_pwm.h"
 #include "ibus_app.h"
+#include "motor_test.h"
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -113,6 +116,8 @@ int main(void)
     Error_Handler();
   }
 
+  Debug_Log_Init();
+
   if (ESC_PWM_Init())
   {
     (void)ESC_PWM_StartSafe();
@@ -121,6 +126,11 @@ int main(void)
   (void)BMI270_App_Init();
   (void)BMP388_App_Init();
   (void)IBus_App_Init();
+  Motor_Test_Init();
+  if (Debug_CLI_Port_Init() != HAL_OK)
+  {
+    Motor_Test_LatchFault(MOTOR_TEST_ABORT_INTERNAL_ERROR);
+  }
 
   led_timestamp = micros();
   uart_timestamp = led_timestamp;
@@ -136,6 +146,8 @@ int main(void)
     /* USER CODE BEGIN 3 */
     uint32_t now = micros();
 
+    Debug_CLI_Process();
+    Motor_Test_Process();
     BMI270_App_Process();
     BMP388_App_Process();
     ESC_PWM_Process();
@@ -149,16 +161,19 @@ int main(void)
 
     if ((uint32_t)(now - uart_timestamp) >= 1000000U)
     {
-      char message[48];
-      int length;
-
       uart_timestamp += 1000000U;
-      length = snprintf(message, sizeof(message),
-                        "H1 boot OK, micros=%lu\r\n", (unsigned long)now);
-      if ((length > 0) && ((size_t)length < sizeof(message)))
+      if (Debug_Log_IsFull() != 0U)
       {
-        (void)HAL_UART_Transmit(&huart1, (uint8_t *)message,
-                                (uint16_t)length, HAL_MAX_DELAY);
+        char message[48];
+        int length;
+
+        length = snprintf(message, sizeof(message),
+                          "H1 boot OK, micros=%lu\r\n", (unsigned long)now);
+        if ((length > 0) && ((size_t)length < sizeof(message)))
+        {
+          (void)HAL_UART_Transmit(&huart1, (uint8_t *)message,
+                                  (uint16_t)length, HAL_MAX_DELAY);
+        }
       }
     }
   }

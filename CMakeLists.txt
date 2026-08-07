@@ -48,9 +48,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/bmi270_port.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/bmp388_app.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/bmp388_port.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/debug_cli_port.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/debug_log.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/esc_pwm.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ibus_app.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ibus_port.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/motor_test.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/motor_test_command.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMI270/bmi2.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMI270/bmi270.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Bosch/BMP3/bmp3.c

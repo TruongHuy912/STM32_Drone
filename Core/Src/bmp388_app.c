@@ -1,6 +1,7 @@
 #include "bmp388_app.h"
 
 #include "bmp388_port.h"
+#include "debug_log.h"
 #include "i2c.h"
 #include "usart.h"
 
@@ -209,7 +210,10 @@ void BMP388_App_Process(void)
   if (bmp388_print_count >= BMP388_APP_PRINT_SAMPLE_COUNT)
   {
     bmp388_print_count = 0U;
-    BMP388_App_PrintSample(&bmp388_sample);
+    if (Debug_Log_IsFull() != 0U)
+    {
+      BMP388_App_PrintSample(&bmp388_sample);
+    }
   }
 }
 

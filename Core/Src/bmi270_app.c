@@ -1,6 +1,7 @@
 #include "bmi270_app.h"
 
 #include "bmi270_port.h"
+#include "debug_log.h"
 #include "spi.h"
 #include "usart.h"
 
@@ -199,7 +200,10 @@ void BMI270_App_Process(void)
   if (bmi270_print_count >= BMI270_APP_PRINT_SAMPLE_COUNT)
   {
     bmi270_print_count = 0U;
-    BMI270_App_PrintSample(&bmi270_sample);
+    if (Debug_Log_IsFull() != 0U)
+    {
+      BMI270_App_PrintSample(&bmi270_sample);
+    }
   }
 }
 
